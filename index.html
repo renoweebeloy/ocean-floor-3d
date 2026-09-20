@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>World Map of the Ocean Floor</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+        body { 
+            background-color: #05080f; 
+            color: #ffffff; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            overflow: hidden; 
+            height: 100vh;
+            width: 100vw;
+        }
+
+        #canvas-container { width: 100%; height: 100%; position: absolute; z-index: 1; }
+
+        /* MAIN UI ELEMENTS */
+        .main-title {
+            position: absolute; top: 15px; left: 50%; transform: translateX(-50%); z-index: 10;
+            background: rgba(10, 15, 30, 0.85); padding: 10px 25px; border-radius: 8px;
+            border: 1px solid #00ffff; text-align: center; box-shadow: 0 0 15px rgba(0, 255, 255, 0.2);
+        }
+        .main-title h1 { font-size: 18px; text-transform: uppercase; letter-spacing: 1px; color: #00ffff; }
+        .main-title p { font-size: 12px; color: #94a3b8; margin-top: 4px; }
+
+        .compass-rose {
+            position: absolute; top: 20px; left: 20px; z-index: 10;
+            background: rgba(10, 15, 30, 0.85); border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 50%; width: 45px; height: 45px; display: flex; align-items: center;
+            justify-content: center; flex-direction: column; font-weight: bold; color: #ff3366;
+        }
+        .compass-rose span { font-size: 12px; margin-top: 2px;}
+        .compass-arrow {
+            width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent;
+            border-bottom: 8px solid #ff3366; 
+        }
+
+        .bottom-scale {
+            position: absolute; bottom: 20px; left: 20px; z-index: 10; font-size: 10px; color: #94a3b8;
+            background: rgba(10, 15, 30, 0.85); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.15);
+        }
+
+        .right-legend {
+            position: absolute; bottom: 20px; right: 20px; z-index: 10;
+            background: rgba(10, 15, 30, 0.85); border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 8px; padding: 15px; display: flex; flex-direction: column; gap: 8px; font-size: 11px;
+        }
+        .right-legend .legend-title { text-align:center; font-weight:bold; margin-bottom:4px; color:#00ffff; font-size: 12px;}
+        .legend-item { display: flex; align-items: center; gap: 10px; color: #e2e8f0; }
+        .color-box { width: 12px; height: 12px; border-radius: 3px; }
+
+        /* FLOATING PILL LABELS */
+        .pin-label {
+            position: absolute; z-index: 5; transform: translate(-50%, -100%);
+            display: flex; align-items: center; gap: 6px;
+            background: rgba(10, 15, 30, 0.9); border: 1.5px solid #00ffff; color: #ffffff;
+            padding: 5px 12px; border-radius: 20px; font-size: 11px; font-weight: bold;
+            pointer-events: none; transition: opacity 0.1s; box-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
+        }
+        .pin-dot { width: 7px; height: 7px; background-color: #00ffff; border-radius: 50%; box-shadow: 0 0 5px #00ffff;}
+
+        /* --- NEW SLIDER CONTROLS PANEL --- */
+        .control-panel {
+            position: absolute; top: 20px; right: 20px; z-index: 10;
+            background: #191e28; padding: 20px; border-radius: 12px;
+            width: 320px; border: 1px solid rgba(255, 255, 255, 0.05);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.6);
+        }
+        .control-group { margin-bottom: 24px; }
+        .control-group:last-child { margin-bottom: 0; }
+        .control-header { 
+            display: flex; justify-content: space-between; align-items: center;
+            font-size: 13px; color: #d1d5db; margin-bottom: 12px; font-weight: 500;
+            letter-spacing: 0.3px;
+        }
+        .control-header span:last-child { font-weight: 600; font-size: 14px; }
+        
+        input[type=range] {
+            -webkit-appearance: none; width: 100%; height: 4px; border-radius: 2px;
+            outline: none; background: #334155; margin: 8px 0;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%;
+            background: #4f8aff; cursor: pointer; border: 2px solid #191e28;
+            box-shadow: 0 0 8px rgba(79, 138, 255, 0.5); transition: transform 0.1s;
+        }
+        input[type=range]::-webkit-slider-thumb:active { transform: scale(1.2); }
+    </style>
+</head>
+<body>
+
+    <div id="canvas-container"></div>
+
+    <div class="main-title">
+        <h1>World Map of the Ocean Floor</h1>
+        <p>Interactive Topography & Bathymetry</p>
+    </div>
+
+    <div class="compass-rose"><div class="compass-arrow"></div><span>N</span></div>
+
+    <!-- ADJUSTMENT SLIDERS -->
+    <div class="control-panel">
+        <div class="control-group">
+            <div class="control-header">
+                <span>3D View Orbit Rotation</span>
+                <span id="rotation-val">12°</span>
+            </div>
+            <input type="range" id="rotation-slider" min="0" max="360" value="12">
+        </div>
+        <div class="control-group">
+            <div class="control-header">
+                <span>Water Layer Visibility</span>
+                <span id="water-val">90%</span>
+            </div>
+            <input type="range" id="water-slider" min="0" max="100" value="90">
+        </div>
+    </div>
+
+    <div class="bottom-scale">
+        <div>Horizontal scale (schematic)</div>
+        <div style="font-weight: bold; margin-top: 4px;">0 &nbsp; 500 &nbsp; 1000 &nbsp; 1500 km</div>
+    </div>
+
+    <div class="right-legend">
+        <div class="legend-title">Depth Legend</div>
+        <div class="legend-item"><div class="color-box" style="background:#ffaa55;"></div> Islands / Guyot</div>
+        <div class="legend-item"><div class="color-box" style="background:#00ffff;"></div> Continental Shelf / Ridge</div>
+        <div class="legend-item"><div class="color-box" style="background:#0088ff;"></div> Continental Slope</div>
+        <div class="legend-item"><div class="color-box" style="background:#0022aa;"></div> Ocean Basin / Abyssal Plain</div>
+        <div class="legend-item"><div class="color-box" style="background:#220055;"></div> Ocean Trench</div>
+    </div>
+
+    <div id="labels-container"></div>
+
+    <script>
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x05080f); 
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        // Initial setup for the camera to match the 12 degree offset later
+        camera.position.set(0, 45, 80);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        container.appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true; 
+        controls.dampingFactor = 0.05;
+        controls.maxPolarAngle = Math.PI / 2.1;
+
+        // Lighting
+        scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(20, 50, 30);
+        scene.add(dirLight);
+
+        // TERRAIN GENERATION
+        const geometry = new THREE.PlaneGeometry(90, 50, 150, 100);
+        geometry.rotateX(-Math.PI / 2);
+        const pos = geometry.attributes.position;
+        const colors = [];
+
+        for (let i = 0; i < pos.count; i++) {
+            let x = pos.getX(i);
+            let z = pos.getZ(i);
+            let y = 0;
+
+            if (x < -30) { y = 3 + Math.sin(x * 0.3) * 0.5; } 
+            else if (x < -18) {
+                let t = (x + 30) / 12;
+                y = 3 * (1 - t) + (-6) * t; 
+                if (z > 5 && z < 15 && x > -25 && x < -18) y -= 3; 
+            } else if (x < -2) { y = -7 + Math.sin(x * 0.2) * 0.3; } 
+            else if (x < 10) {
+                let dist = Math.abs(x - 4);
+                y = -2 - dist * 0.7 + Math.sin(z * 0.5) * 1.5; 
+            } else if (x < 18) {
+                let t = Math.abs(x - 14) / 4;
+                y = -12 + t * 6; 
+            } else if (x < 28) {
+                if (z < 0) {
+                    let dist = Math.abs(x - 23);
+                    y = -7 + Math.max(0, 6 - dist * 1.5); 
+                } else {
+                    let dist = Math.abs(x - 23);
+                    let height = Math.max(0, 6 - dist * 1.5);
+                    y = -7 + (height > 4 ? 4 : height); 
+                }
+            } else {
+                let dist = Math.abs(x - 38);
+                y = -7 + Math.max(0, 12 - dist * 1.8); 
+            }
+
+            y += (Math.sin(x * 0.8) * Math.cos(z * 0.8)) * 0.4; 
+            pos.setY(i, y);
+
+            let color = new THREE.Color();
+            if (y > 2) color.setHex(0xffaa55);      
+            else if (y > -2) color.setHex(0x00ffff); 
+            else if (y > -6) color.setHex(0x0088ff); 
+            else if (y > -10) color.setHex(0x0022aa); 
+            else color.setHex(0x220055);             
+            
+            colors.push(color.r, color.g, color.b);
+        }
+
+        geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+        geometry.computeVertexNormals();
+
+        const material = new THREE.MeshPhongMaterial({
+            vertexColors: true, shininess: 60, flatShading: false, side: THREE.DoubleSide
+        });
+
+        const terrainMesh = new THREE.Mesh(geometry, material);
+        scene.add(terrainMesh);
+
+        // WATER SURFACE
+        const waterGeo = new THREE.PlaneGeometry(90, 50);
+        waterGeo.rotateX(-Math.PI / 2);
+        const waterMat = new THREE.MeshPhongMaterial({
+            color: 0x0055ff,
+            transparent: true,
+            opacity: 0.90, // Naka-set sa 90% base sa imahe
+            shininess: 90,
+            side: THREE.DoubleSide,
+            depthWrite: false
+        });
+        const waterMesh = new THREE.Mesh(waterGeo, waterMat);
+        waterMesh.position.y = 2.8; 
+        scene.add(waterMesh);
+
+        // LABELS
+        const pinData = [
+            { name: "Continental Shelf", pos: new THREE.Vector3(-38, 4.5, -10) },
+            { name: "Continental Slope", pos: new THREE.Vector3(-24, -1.5, -10) },
+            { name: "Submarine Canyon", pos: new THREE.Vector3(-22, -3, 10) },
+            { name: "Ocean Basin", pos: new THREE.Vector3(-12, -7.5, 12) },
+            { name: "Abyssal Plain", pos: new THREE.Vector3(-6, -7, -5) },
+            { name: "Mid-Ocean Ridge", pos: new THREE.Vector3(4, -1, 0) },
+            { name: "Ocean Trench", pos: new THREE.Vector3(14, -11.5, 0) },
+            { name: "Seamount", pos: new THREE.Vector3(23, 0, -8) },
+            { name: "Guyot", pos: new THREE.Vector3(23, -2, 10) },
+            { name: "Island Arc", pos: new THREE.Vector3(38, 5, 0) }
+        ];
+
+        const labelsContainer = document.getElementById('labels-container');
+        const pinElements = pinData.map(pin => {
+            const el = document.createElement('div');
+            el.className = 'pin-label';
+            el.innerHTML = `<div class="pin-dot"></div><span>${pin.name}</span>`;
+            labelsContainer.appendChild(el);
+            return { element: el, pos: pin.pos };
+        });
+
+        function updateLabels() {
+            const tempV = new THREE.Vector3();
+            pinElements.forEach(pin => {
+                tempV.copy(pin.pos).project(camera);
+                if (tempV.z > 1) { pin.element.style.opacity = '0'; return; }
+                const x = (tempV.x * .5 + .5) * window.innerWidth;
+                const y = (tempV.y * -.5 + .5) * window.innerHeight;
+                pin.element.style.transform = `translate(-50%, -100%) translate(${x}px,${y}px)`;
+                pin.element.style.opacity = '1';
+            });
+        }
+
+        // --- SLIDER LOGIC ---
+        const rotSlider = document.getElementById('rotation-slider');
+        const rotVal = document.getElementById('rotation-val');
+        const waterSlider = document.getElementById('water-slider');
+        const waterVal = document.getElementById('water-val');
+
+        // Function para mapulihan og blue line ang slider track paingon sa thumb
+        function updateSliderTrack(elem) {
+            const min = elem.min || 0;
+            const max = elem.max || 100;
+            const percentage = ((elem.value - min) / (max - min)) * 100;
+            elem.style.background = `linear-gradient(to right, #4f8aff ${percentage}%, #334155 ${percentage}%)`;
+        }
+
+        // Action kung tandugon ang Rotation slider
+        rotSlider.addEventListener('input', (e) => {
+            const val = e.target.value;
+            rotVal.textContent = val + '°';
+            updateSliderTrack(e.target);
+            
+            // I-move ang camera pa-orbit base sa degree (ginamit ang math)
+            const radius = camera.position.distanceTo(controls.target);
+            const polar = controls.getPolarAngle();
+            const azimuth = THREE.MathUtils.degToRad(val);
+            
+            camera.position.x = controls.target.x + radius * Math.sin(polar) * Math.sin(azimuth);
+            camera.position.y = controls.target.y + radius * Math.cos(polar);
+            camera.position.z = controls.target.z + radius * Math.sin(polar) * Math.cos(azimuth);
+            controls.update();
+        });
+
+        // I-sync ang Rotation slider kung ang user mo-pan/orbit gamit ang mouse
+        controls.addEventListener('change', () => {
+            let angle = THREE.MathUtils.radToDeg(controls.getAzimuthalAngle());
+            angle = (angle % 360 + 360) % 360; // Para magpabilin from 0-360
+            rotSlider.value = angle;
+            rotVal.textContent = Math.round(angle) + '°';
+            updateSliderTrack(rotSlider);
+        });
+
+        // Action kung tandugon ang Water slider
+        waterSlider.addEventListener('input', (e) => {
+            const val = e.target.value;
+            waterVal.textContent = val + '%';
+            updateSliderTrack(e.target);
+            waterMat.opacity = val / 100;
+            waterMesh.visible = val > 0;
+        });
+
+        // Initial trigger sa pag-load sa website
+        rotSlider.dispatchEvent(new Event('input'));
+        waterSlider.dispatchEvent(new Event('input'));
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            updateLabels();
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
